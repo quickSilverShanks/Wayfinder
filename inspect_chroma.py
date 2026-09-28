@@ -9,8 +9,8 @@ Usage examples:
     python inspect_chroma.py                         # View summary stats & sample chunks
     python inspect_chroma.py --limit 10              # View 10 recent chunks
     python inspect_chroma.py --query "leave policy"  # Perform semantic search
-    python inspect_chroma.py --file "HR/leave.pdf"   # Filter chunks by specific file
-    python inspect_chroma.py --category "HR"         # Filter chunks by category
+    python inspect_chroma.py --file "HR/Policies/leave_policy.pdf"  # Filter chunks by exact file path
+    python inspect_chroma.py --category "HR"                        # Filter chunks by category
 """
 
 import argparse
@@ -50,6 +50,21 @@ def display_chunk(idx: int, chunk_id: str, document: str, metadata: Dict[str, An
         print("      [... truncated ...]")
 
 
+def build_chroma_where(file_path: Optional[str] = None, category: Optional[str] = None) -> Optional[Dict[str, Any]]:
+    """Build a valid ChromaDB where clause handling single or compound conditions."""
+    conditions = []
+    if file_path:
+        conditions.append({"file_path": file_path})
+    if category:
+        conditions.append({"category": category})
+
+    if not conditions:
+        return None
+    if len(conditions) == 1:
+        return conditions[0]
+    return {"$and": conditions}
+
+
 def inspect_chroma(
     limit: int = 5,
     query_text: Optional[str] = None,
@@ -67,29 +82,95 @@ def inspect_chroma(
 
     vs = VectorStoreManager(persist_dir=chroma_path)
     total_count = vs.get_count()
-    print(f"Total Stored Chunks: {total_count}")
 
     if total_count == 0:
+        print("Total Stored Chunks: 0")
         print("\nNo chunks currently stored in ChromaDB.")
         print("Run the ingestion pipeline first:")
         print("    python create_sample_pdf.py")
         print("    python -m wayfinder_ingestion.pipeline")
         return
 
+    # Retrieve all metadatas to analyze categories and documents
+    all_data = vs.collection.get(include=["metadatas"])
+    all_metas = all_data.get("metadatas", [])
+    unique_files = sorted(list(set(m.get("file_path", "unknown") for m in all_metas if m)))
+    unique_categories = sorted(list(set(m.get("category", "unknown") for m in all_metas if m)))
+
+    # Check if specified file is present in exact path
+    matched_file = None
+    if file_filter:
+        norm_filter = file_filter.replace("\\", "/").strip()
+        for f in unique_files:
+            if f.replace("\\", "/").strip() == norm_filter:
+                matched_file = f
+                break
+
+        if not matched_file:
+            print(f"Total Stored Chunks: {total_count}")
+            print_divider("File Filter Error")
+            print(f"File '{file_filter}' was not found in ChromaDB.\n")
+            print(f"Available files ({len(unique_files)}):")
+            for f in unique_files:
+                print(f"  • {f}")
+            print("\nPlease pass one of the exact file paths listed above with --file.")
+            return
+
+    # Check if specified category is present
+    matched_category = None
+    if category_filter:
+        norm_cat = category_filter.strip().lower()
+        for c in unique_categories:
+            if c.strip().lower() == norm_cat:
+                matched_category = c
+                break
+
+        if not matched_category:
+            print(f"Total Stored Chunks: {total_count}")
+            print_divider("Category Filter Error")
+            print(f"Category '{category_filter}' was not found in ChromaDB.\n")
+            print(f"Available categories ({len(unique_categories)}):")
+            for c in unique_categories:
+                print(f"  • {c}")
+            print("\nPlease pass one of the exact categories listed above with --category.")
+            return
+
+    where_clause = build_chroma_where(file_path=matched_file, category=matched_category)
+    is_filtered = bool(where_clause)
+
+    # Compute matching count and matching metadatas
+    if is_filtered:
+        def matches_filter(m: Dict[str, Any]) -> bool:
+            if not m:
+                return False
+            if matched_file and m.get("file_path") != matched_file:
+                return False
+            if matched_category and m.get("category") != matched_category:
+                return False
+            return True
+
+        matching_metas = [m for m in all_metas if matches_filter(m)]
+        matching_count = len(matching_metas)
+    else:
+        matching_metas = all_metas
+        matching_count = total_count
+
+    print(f"Total Stored Chunks: {total_count}")
+    if is_filtered:
+        filter_parts = []
+        if matched_file:
+            filter_parts.append(f"file='{matched_file}'")
+        if matched_category:
+            filter_parts.append(f"category='{matched_category}'")
+        print(f"Active Filter     : {', '.join(filter_parts)}")
+        print(f"Matching Chunks   : {matching_count} (out of {total_count} total stored)")
+
     # Semantic search mode
     if query_text:
         print_divider(f"Semantic Search Query: '{query_text}'")
         try:
-            where_filter = {}
-            if file_filter:
-                where_filter["file_path"] = file_filter
-            if category_filter:
-                where_filter["category"] = category_filter
-
-            filter_arg = where_filter if where_filter else None
-
-            # Perform similarity search using LangChain
-            results = vs.similarity_search(query=query_text, k=limit, filter=filter_arg)
+            # Perform similarity search using LangChain with resolved filter
+            results = vs.similarity_search(query=query_text, k=limit, filter=where_clause)
             print(f"Found {len(results)} matching chunks (limit: {limit}):")
             for idx, doc in enumerate(results, 1):
                 chunk_id = doc.metadata.get("chunk_id", f"result_{idx}")
@@ -99,13 +180,29 @@ def inspect_chroma(
             print("Note: Ensure Ollama is running (`ollama serve`) with the embedding model pulled.")
         return
 
-    # Filtered or general inspection mode
-    where_clause = {}
-    if file_filter:
-        where_clause["file_path"] = file_filter
-    if category_filter:
-        where_clause["category"] = category_filter
+    # Files Summary Section
+    summary_files = sorted(list(set(m.get("file_path", "unknown") for m in matching_metas if m)))
+    summary_categories = sorted(list(set(m.get("category", "unknown") for m in matching_metas if m)))
 
+    if is_filtered:
+        print_divider("Filtered Files Summary")
+        print(f"Matching Categories ({len(summary_categories)}): {', '.join(summary_categories) if summary_categories else 'None'}")
+        print(f"Matching Documents  ({len(summary_files)}):")
+        if summary_files:
+            for f in summary_files:
+                count = sum(1 for m in matching_metas if m and m.get("file_path") == f)
+                print(f"  • {f} ({count} chunks)")
+        else:
+            print("  (No matching documents found)")
+    else:
+        print_divider("Indexed Files Summary")
+        print(f"Unique Categories ({len(unique_categories)}): {', '.join(unique_categories)}")
+        print(f"Unique Documents  ({len(unique_files)}):")
+        for f in unique_files:
+            count = sum(1 for m in all_metas if m and m.get("file_path") == f)
+            print(f"  • {f} ({count} chunks)")
+
+    # Retrieve chunks for inspection
     get_kwargs = {
         "limit": limit,
         "include": ["documents", "metadatas"]
@@ -118,27 +215,24 @@ def inspect_chroma(
     docs = data.get("documents", [])
     metas = data.get("metadatas", [])
 
-    # Overview of unique files stored
-    all_data = vs.collection.get(include=["metadatas"])
-    all_metas = all_data.get("metadatas", [])
-    unique_files = sorted(list(set(m.get("file_path", "unknown") for m in all_metas if m)))
-    unique_categories = sorted(list(set(m.get("category", "unknown") for m in all_metas if m)))
+    if is_filtered:
+        print_divider(f"Displaying Sample Chunks (Showing {len(ids)} of {matching_count})")
+    else:
+        print_divider(f"Displaying Sample Chunks (Showing {len(ids)} of {total_count})")
 
-    print_divider("Indexed Files Summary")
-    print(f"Unique Categories ({len(unique_categories)}): {', '.join(unique_categories)}")
-    print(f"Unique Documents  ({len(unique_files)}):")
-    for f in unique_files:
-        count = sum(1 for m in all_metas if m and m.get("file_path") == f)
-        print(f"  • {f} ({count} chunks)")
-
-    print_divider(f"Displaying Sample Chunks (Showing {len(ids)} of {total_count})")
-    for idx in range(len(ids)):
-        display_chunk(
-            idx=idx + 1,
-            chunk_id=ids[idx],
-            document=docs[idx] if idx < len(docs) else "",
-            metadata=metas[idx] if idx < len(metas) else {}
-        )
+    if not ids:
+        if is_filtered:
+            print("\nNo chunks found matching the specified filter.")
+        else:
+            print("\nNo chunks found in the database.")
+    else:
+        for idx in range(len(ids)):
+            display_chunk(
+                idx=idx + 1,
+                chunk_id=ids[idx],
+                document=docs[idx] if idx < len(docs) else "",
+                metadata=metas[idx] if idx < len(metas) else {}
+            )
 
     print("\n" + "=" * 65)
     print("Tip: Run `python inspect_chroma.py --query \"your question\"` to test vector search.")

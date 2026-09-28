@@ -267,7 +267,7 @@ python inspect_chroma.py --limit 10
 python inspect_chroma.py --query "frontline leave policy and entitlements"
 
 # Filter chunks by specific file or category
-python inspect_chroma.py --file "HR/leave_policy.pdf"
+python inspect_chroma.py --file "HR/Policies/leave_policy.pdf"
 python inspect_chroma.py --category "HR"
 ```
 
