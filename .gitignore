@@ -13,10 +13,10 @@ ENV/
 .env
 
 # Data & Database storage
-data/
-*.chroma
-*.db
-*.sqlite3
+# data/
+# *.chroma
+# *.db
+# *.sqlite3
 *.tmp
 
 # Prefect
