@@ -65,6 +65,44 @@ class Settings(BaseSettings):
         description="Prefect API URL. Leave empty for local ephemeral execution or set to http://localhost:4200/api when running Prefect server."
     )
 
+    # Search & Retrieval Backend Settings (Part 2)
+    DEFAULT_TOP_K: int = Field(
+        default=5,
+        description="Default number of search results returned when not specified in API request"
+    )
+    MIN_TOP_K: int = Field(
+        default=1,
+        description="Minimum allowed number of search results in API request"
+    )
+    MAX_TOP_K: int = Field(
+        default=50,
+        description="Maximum allowed number of search results in API request"
+    )
+    DENSE_TOP_K: int = Field(
+        default=15,
+        description="Number of candidate chunks retrieved via ChromaDB dense vector search"
+    )
+    BM25_TOP_K: int = Field(
+        default=15,
+        description="Number of candidate chunks retrieved via BM25 lexical search"
+    )
+    RERANK_TOP_K: int = Field(
+        default=25,
+        description="Maximum number of merged candidates sent to the BGE reranker"
+    )
+    RELEVANCE_THRESHOLD: float = Field(
+        default=0.20,
+        description="Relevance score threshold (0.0 to 1.0) below which results are excluded from primary results"
+    )
+    RERANKER_MODEL: str = Field(
+        default="BAAI/bge-reranker-v2-m3",
+        description="Reranker model identifier (configurable via .env, never hard-coded in logic)"
+    )
+    RERANKER_DEVICE: str = Field(
+        default="auto",
+        description="Device for reranker execution ('auto', 'cuda', 'cpu')"
+    )
+
     model_config = SettingsConfigDict(
         env_file=str(ROOT_ENV_FILE) if ROOT_ENV_FILE.exists() else ".env",
         env_file_encoding="utf-8",

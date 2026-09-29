@@ -19,7 +19,8 @@ def test_detect_new_and_unchanged_files(tmp_path):
     pdf_file.parent.mkdir(parents=True)
     pdf_file.write_bytes(b"%PDF-1.4 dummy pdf content for testing")
 
-    detector = ChangeDetector(source_dir=str(source_dir), manifest_dir=str(manifest_dir))
+    csv_file = str(tmp_path / "test_ledger.csv")
+    detector = ChangeDetector(source_dir=str(source_dir), manifest_dir=str(manifest_dir), csv_path=csv_file)
     change_set = detector.detect_changes()
 
     assert len(change_set.new_files) == 1
@@ -32,7 +33,7 @@ def test_detect_new_and_unchanged_files(tmp_path):
     detector.record_ingested(doc_info, ["hash1_p1_c1"])
 
     # Re-run detection -> should be unchanged
-    detector2 = ChangeDetector(source_dir=str(source_dir), manifest_dir=str(manifest_dir))
+    detector2 = ChangeDetector(source_dir=str(source_dir), manifest_dir=str(manifest_dir), csv_path=csv_file)
     change_set2 = detector2.detect_changes()
 
     assert len(change_set2.new_files) == 0
@@ -44,13 +45,14 @@ def test_detect_new_and_unchanged_files(tmp_path):
 def test_detect_modified_file(tmp_path):
     source_dir = tmp_path / "source"
     manifest_dir = tmp_path / "manifest"
+    csv_file = str(tmp_path / "test_ledger.csv")
     source_dir.mkdir()
     manifest_dir.mkdir()
 
     pdf_file = source_dir / "doc.pdf"
     pdf_file.write_bytes(b"%PDF-1.4 initial content")
 
-    detector = ChangeDetector(source_dir=str(source_dir), manifest_dir=str(manifest_dir))
+    detector = ChangeDetector(source_dir=str(source_dir), manifest_dir=str(manifest_dir), csv_path=csv_file)
     change_set = detector.detect_changes()
     doc_info = change_set.new_files[0]
     detector.record_ingested(doc_info, ["chunk_1"])
@@ -58,7 +60,7 @@ def test_detect_modified_file(tmp_path):
     # Modify file content
     pdf_file.write_bytes(b"%PDF-1.4 updated content modified")
 
-    detector2 = ChangeDetector(source_dir=str(source_dir), manifest_dir=str(manifest_dir))
+    detector2 = ChangeDetector(source_dir=str(source_dir), manifest_dir=str(manifest_dir), csv_path=csv_file)
     change_set2 = detector2.detect_changes()
 
     assert len(change_set2.new_files) == 0
@@ -69,20 +71,21 @@ def test_detect_modified_file(tmp_path):
 def test_detect_deleted_file(tmp_path):
     source_dir = tmp_path / "source"
     manifest_dir = tmp_path / "manifest"
+    csv_file = str(tmp_path / "test_ledger.csv")
     source_dir.mkdir()
     manifest_dir.mkdir()
 
     pdf_file = source_dir / "temp.pdf"
     pdf_file.write_bytes(b"%PDF-1.4 temp content")
 
-    detector = ChangeDetector(source_dir=str(source_dir), manifest_dir=str(manifest_dir))
+    detector = ChangeDetector(source_dir=str(source_dir), manifest_dir=str(manifest_dir), csv_path=csv_file)
     change_set = detector.detect_changes()
     detector.record_ingested(change_set.new_files[0], ["chunk_temp"])
 
     # Delete file from disk
     pdf_file.unlink()
 
-    detector2 = ChangeDetector(source_dir=str(source_dir), manifest_dir=str(manifest_dir))
+    detector2 = ChangeDetector(source_dir=str(source_dir), manifest_dir=str(manifest_dir), csv_path=csv_file)
     change_set2 = detector2.detect_changes()
 
     assert len(change_set2.deleted_files) == 1
