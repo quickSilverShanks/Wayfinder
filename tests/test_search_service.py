@@ -112,3 +112,31 @@ def test_search_service_no_results_scenario():
     assert res.below_threshold_results is not None
     assert len(res.below_threshold_results) == 1
     assert res.below_threshold_results[0].relevance_score == 0.02
+
+
+def test_search_service_below_threshold_capped():
+    mock_retriever = MagicMock()
+    mock_reranker = MagicMock()
+
+    service = SearchService(hybrid_retriever=mock_retriever, reranker=mock_reranker)
+
+    # 10 failing candidates below threshold
+    failing_candidates = [
+        {
+            "chunk_id": f"chunk_fail_{i}",
+            "text": f"Irrelevant text {i}",
+            "metadata": {"doc_title": f"Doc {i}", "category": "HR", "sub_category": "General", "page_number": 1},
+            "relevance_score": 0.01 * (10 - i)
+        }
+        for i in range(10)
+    ]
+    mock_retriever.retrieve_hybrid.return_value = failing_candidates
+    mock_reranker.rerank.return_value = failing_candidates
+
+    req = SearchRequest(query="any query", number_of_results=5)
+    res = service.search(req)
+
+    # Should be capped at MAX_BELOW_THRESHOLD_RESULTS (3)
+    assert len(res.below_threshold_results) == 3
+    assert res.below_threshold_results[0].chunk_id == "chunk_fail_0"
+    assert res.below_threshold_results[2].chunk_id == "chunk_fail_2"

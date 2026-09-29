@@ -171,19 +171,24 @@ class HybridRetriever:
         bm25_k: Optional[int] = None,
         rerank_k: Optional[int] = None,
         category: Optional[str] = None,
-        sub_category: Optional[str] = None
+        sub_category: Optional[str] = None,
+        dense_weight: Optional[float] = None,
+        bm25_weight: Optional[float] = None
     ) -> List[Dict[str, Any]]:
         """
         Orchestrates hybrid retrieval:
         1. Queries Dense retriever (ChromaDB + Ollama)
         2. Queries Lexical retriever (BM25)
-        3. Merges and deduplicates candidates using Reciprocal Rank Fusion (RRF)
+        3. Merges and deduplicates candidates using Weighted Reciprocal Rank Fusion (RRF)
         4. Returns top `rerank_k` candidates ready for cross-encoder reranking.
         """
         settings = self.settings
         dense_top_k = dense_k or settings.DENSE_TOP_K
         bm25_top_k = bm25_k or settings.BM25_TOP_K
         rerank_candidate_limit = rerank_k or settings.RERANK_TOP_K
+
+        w_dense = dense_weight if dense_weight is not None else getattr(settings, "DENSE_WEIGHT", 1.0)
+        w_bm25 = bm25_weight if bm25_weight is not None else getattr(settings, "BM25_WEIGHT", 0.5)
 
         where_filter = build_chroma_where_filter(category=category, sub_category=sub_category)
 
@@ -202,15 +207,15 @@ class HybridRetriever:
             sub_category=sub_category
         )
 
-        # 3. Reciprocal Rank Fusion (RRF) merge
-        # RRF score = sum(1.0 / (k_rrf + rank))
+        # 3. Weighted Reciprocal Rank Fusion (RRF) merge
+        # RRF score = sum(weight / (k_rrf + rank))
         k_rrf = 60
         merged_candidates: Dict[str, Dict[str, Any]] = {}
 
         # Process dense candidates
         for item in dense_candidates:
             cid = item["chunk_id"]
-            rrf_score = 1.0 / (k_rrf + item["dense_rank"])
+            rrf_score = w_dense / (k_rrf + item["dense_rank"])
             merged_candidates[cid] = {
                 "chunk_id": cid,
                 "text": item["text"],
@@ -223,7 +228,7 @@ class HybridRetriever:
         # Process lexical candidates
         for item in lexical_candidates:
             cid = item["chunk_id"]
-            rrf_contrib = 1.0 / (k_rrf + item["lexical_rank"])
+            rrf_contrib = w_bm25 / (k_rrf + item["lexical_rank"])
             if cid in merged_candidates:
                 merged_candidates[cid]["rrf_score"] += rrf_contrib
                 merged_candidates[cid]["lexical_rank"] = item["lexical_rank"]

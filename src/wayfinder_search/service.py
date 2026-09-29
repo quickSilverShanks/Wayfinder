@@ -111,7 +111,8 @@ class SearchService:
 
         threshold_met = len(passing_candidates) > 0
         final_passing = [to_search_item(c) for c in passing_candidates[:effective_top_k]]
-        below_threshold_items = [to_search_item(c) for c in failing_candidates[:10]]
+        below_threshold_limit = getattr(self.settings, "MAX_BELOW_THRESHOLD_RESULTS", 3)
+        below_threshold_items = [to_search_item(c) for c in failing_candidates[:below_threshold_limit]]
 
         duration = round(time.perf_counter() - start_time, 4)
 

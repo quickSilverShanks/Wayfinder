@@ -58,3 +58,36 @@ def test_hybrid_retrieval_merging_and_deduplication():
     assert merged[0]["chunk_id"] == "c2"
     assert merged[0]["dense_rank"] == 2
     assert merged[0]["lexical_rank"] == 1
+
+
+def test_hybrid_retrieval_weighted_rrf():
+    mock_vector_store = MagicMock()
+    mock_embedding_service = MagicMock()
+    mock_bm25 = MagicMock()
+
+    retriever = HybridRetriever(
+        vector_store=mock_vector_store,
+        embedding_service=mock_embedding_service,
+        bm25_index=mock_bm25
+    )
+
+    # c_dense is rank 1 in dense
+    retriever.retrieve_dense = MagicMock(return_value=[
+        {"chunk_id": "c_dense", "text": "semantic match", "metadata": {}, "dense_rank": 1}
+    ])
+    # c_bm25 is rank 1 in lexical
+    retriever.retrieve_lexical = MagicMock(return_value=[
+        {"chunk_id": "c_bm25", "text": "keyword match", "metadata": {}, "lexical_rank": 1}
+    ])
+
+    # Case 1: Dense weight higher (1.0 vs 0.1) -> c_dense should rank first
+    res_dense_heavy = retriever.retrieve_hybrid(
+        query="test", dense_weight=1.0, bm25_weight=0.1
+    )
+    assert res_dense_heavy[0]["chunk_id"] == "c_dense"
+
+    # Case 2: BM25 weight higher (0.1 vs 1.0) -> c_bm25 should rank first
+    res_bm25_heavy = retriever.retrieve_hybrid(
+        query="test", dense_weight=0.1, bm25_weight=1.0
+    )
+    assert res_bm25_heavy[0]["chunk_id"] == "c_bm25"

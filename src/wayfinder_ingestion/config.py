@@ -90,6 +90,18 @@ class Settings(BaseSettings):
         default=25,
         description="Maximum number of merged candidates sent to the BGE reranker"
     )
+    MAX_BELOW_THRESHOLD_RESULTS: int = Field(
+        default=3,
+        description="Maximum number of below-threshold results to return in search response"
+    )
+    DENSE_WEIGHT: float = Field(
+        default=1.0,
+        description="Weight factor for dense vector retrieval in RRF candidate fusion"
+    )
+    BM25_WEIGHT: float = Field(
+        default=0.5,
+        description="Weight factor for BM25 lexical retrieval in RRF candidate fusion"
+    )
     RELEVANCE_THRESHOLD: float = Field(
         default=0.20,
         description="Relevance score threshold (0.0 to 1.0) below which results are excluded from primary results"
