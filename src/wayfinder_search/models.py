@@ -31,6 +31,13 @@ class SearchRequest(BaseModel):
         description="Optional sub-category filter (e.g. Disputes, Policies, Security)",
         examples=["Disputes"]
     )
+    relevance_threshold: Optional[float] = Field(
+        default=None,
+        description="Optional relevance score threshold override (0.0 to 1.0). If omitted, uses RELEVANCE_THRESHOLD from .env.",
+        examples=[0.10],
+        ge=0.0,
+        le=1.0
+    )
 
     @field_validator("query")
     @classmethod
@@ -63,13 +70,18 @@ class SearchRequest(BaseModel):
 
 class SearchResultItem(BaseModel):
     """
-    Individual document chunk search result with structural metadata and relevance score.
+    Individual document chunk search result with structural metadata, relevance score,
+    and traffic-light confidence category (green, amber, red).
     """
     document_title: str = Field(..., description="Document title extracted from PDF/Markdown")
     category: str = Field(..., description="Primary category derived from folder structure")
     sub_category: str = Field(..., description="Sub-category derived from folder structure")
     source_document: str = Field(..., description="Relative file path to source PDF")
     relevance_score: float = Field(..., description="Reranker relevance score (0.0 to 1.0)")
+    confidence_category: str = Field(
+        default="green",
+        description="Traffic-light confidence rating: 'green' (>=0.40), 'amber' (0.10-0.40), or 'red' (<0.10)"
+    )
     chunk_text: str = Field(..., description="Full text content of the retrieved chunk")
     page_number: int = Field(..., description="Page number where this chunk originated")
     document_id: str = Field(..., description="Document identifier / content SHA-256 hash")
@@ -86,6 +98,8 @@ class SearchResponse(BaseModel):
     search_duration_seconds: float = Field(..., description="Total search and rerank latency in seconds")
     threshold_met: bool = Field(..., description="Whether any retrieved chunks met the relevance threshold")
     relevance_threshold: float = Field(..., description="Active relevance threshold applied")
+    threshold_green: Optional[float] = Field(default=0.40, description="Score threshold for green confidence category")
+    threshold_amber: Optional[float] = Field(default=0.10, description="Score threshold for amber confidence category")
     total_results: int = Field(..., description="Count of qualifying results returned in results list")
     results: List[SearchResultItem] = Field(
         default_factory=list,
@@ -93,6 +107,6 @@ class SearchResponse(BaseModel):
     )
     below_threshold_results: Optional[List[SearchResultItem]] = Field(
         default=None,
-        description="Candidates below relevance threshold (kept for debugging/diagnostics)"
+        description="Candidates below relevance threshold (kept for combined top-K or diagnostics)"
     )
     message: str = Field(..., description="Human-readable status summary message")

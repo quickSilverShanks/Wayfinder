@@ -102,8 +102,16 @@ class Settings(BaseSettings):
         default=0.5,
         description="Weight factor for BM25 lexical retrieval in RRF candidate fusion"
     )
+    THRESHOLD_GREEN: float = Field(
+        default=0.40,
+        description="Score threshold for 'green' high-confidence category (score >= THRESHOLD_GREEN)"
+    )
+    THRESHOLD_AMBER: float = Field(
+        default=0.10,
+        description="Score threshold for 'amber' medium-confidence category (THRESHOLD_AMBER <= score < THRESHOLD_GREEN)"
+    )
     RELEVANCE_THRESHOLD: float = Field(
-        default=0.20,
+        default=0.10,
         description="Relevance score threshold (0.0 to 1.0) below which results are excluded from primary results"
     )
     RERANKER_MODEL: str = Field(

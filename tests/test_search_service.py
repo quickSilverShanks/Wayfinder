@@ -81,7 +81,13 @@ def test_search_service_relevance_threshold_filtering():
     assert res.threshold_met is True
     assert len(res.results) == 2
     assert res.results[0].chunk_id == "c1"
+    assert res.results[0].confidence_category == "green"
     assert res.results[1].chunk_id == "c2"
+    assert res.results[1].confidence_category == "green"
+    # Combined budget: 5 requested - 2 passing = 3 slots for below threshold (only 1 available)
+    assert len(res.below_threshold_results) == 1
+    assert res.below_threshold_results[0].chunk_id == "c3"
+    assert res.below_threshold_results[0].confidence_category == "red"
 
 
 def test_search_service_no_results_scenario():
@@ -90,7 +96,7 @@ def test_search_service_no_results_scenario():
 
     service = SearchService(hybrid_retriever=mock_retriever, reranker=mock_reranker)
 
-    # All candidates have low scores below threshold (e.g. 0.02 < 0.20)
+    # All candidates have low scores below threshold (e.g. 0.02 < 0.10)
     mock_reranked = [
         {
             "chunk_id": "c_low",
@@ -112,31 +118,41 @@ def test_search_service_no_results_scenario():
     assert res.below_threshold_results is not None
     assert len(res.below_threshold_results) == 1
     assert res.below_threshold_results[0].relevance_score == 0.02
+    assert res.below_threshold_results[0].confidence_category == "red"
 
 
-def test_search_service_below_threshold_capped():
+def test_search_service_combined_max_retrieval_and_amber_category():
     mock_retriever = MagicMock()
     mock_reranker = MagicMock()
 
     service = SearchService(hybrid_retriever=mock_retriever, reranker=mock_reranker)
 
-    # 10 failing candidates below threshold
-    failing_candidates = [
-        {
-            "chunk_id": f"chunk_fail_{i}",
-            "text": f"Irrelevant text {i}",
-            "metadata": {"doc_title": f"Doc {i}", "category": "HR", "sub_category": "General", "page_number": 1},
-            "relevance_score": 0.01 * (10 - i)
-        }
-        for i in range(10)
+    # 2 passing (1 green >=0.40, 1 amber 0.10-0.40) and 5 failing (<0.10)
+    candidates = [
+        {"chunk_id": "c_green", "text": "high match", "metadata": {}, "relevance_score": 0.55},
+        {"chunk_id": "c_amber", "text": "mid match", "metadata": {}, "relevance_score": 0.25},
+        {"chunk_id": "c_fail_1", "text": "low match 1", "metadata": {}, "relevance_score": 0.08},
+        {"chunk_id": "c_fail_2", "text": "low match 2", "metadata": {}, "relevance_score": 0.05},
+        {"chunk_id": "c_fail_3", "text": "low match 3", "metadata": {}, "relevance_score": 0.02},
+        {"chunk_id": "c_fail_4", "text": "low match 4", "metadata": {}, "relevance_score": 0.01},
     ]
-    mock_retriever.retrieve_hybrid.return_value = failing_candidates
-    mock_reranker.rerank.return_value = failing_candidates
+    mock_retriever.retrieve_hybrid.return_value = candidates
+    mock_reranker.rerank.return_value = candidates
 
-    req = SearchRequest(query="any query", number_of_results=5)
+    # User requested 5 total: 2 relevant, so irrelevant should show next 3 (2 + 3 = 5)
+    req = SearchRequest(query="test", number_of_results=5)
     res = service.search(req)
 
-    # Should be capped at MAX_BELOW_THRESHOLD_RESULTS (3)
+    assert len(res.results) == 2
+    assert res.results[0].confidence_category == "green"
+    assert res.results[1].confidence_category == "amber"
+
+    assert res.below_threshold_results is not None
     assert len(res.below_threshold_results) == 3
-    assert res.below_threshold_results[0].chunk_id == "chunk_fail_0"
-    assert res.below_threshold_results[2].chunk_id == "chunk_fail_2"
+    assert res.below_threshold_results[0].chunk_id == "c_fail_1"
+    assert res.below_threshold_results[0].confidence_category == "red"
+    assert res.below_threshold_results[2].chunk_id == "c_fail_3"
+    assert res.below_threshold_results[2].confidence_category == "red"
+
+    # Total combined items returned is exactly 5
+    assert len(res.results) + len(res.below_threshold_results) == 5
